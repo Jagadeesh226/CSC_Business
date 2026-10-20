@@ -1,0 +1,31 @@
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+coverage/
+
+# Local data and backups
+uploads/
+data/
+backups/
+*.dump
+*.log
+
+# macOS and editors
+.DS_Store
+.idea/
