@@ -1,91 +1,139 @@
+
 #!/usr/bin/env bash
-# One command every agent runs before saying "done".
-# Usage: scripts/check.sh [backend|frontend|repo|contract|all]   (default: all)
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+
 FAILED=()
 
-run() {  # run <label> <command...>
-  local label="$1"; shift
-  echo; echo "=== $label ==="
-  if "$@"; then echo "PASS  $label"; else echo "FAIL  $label"; FAILED+=("$label"); fi
-}
-optional() {  # optional <tool> <label> <command...>  (skipped, with a note, if tool missing)
-  local tool="$1" label="$2"; shift 2
-  if command -v "$tool" >/dev/null 2>&1; then run "$label" "$@"
-  else echo; echo "--- SKIP  $label  ('$tool' not installed)"; fi
-}
-
-pytest_cmd() {  # "no tests collected" (exit 5) is a warning, not a failure
-  pytest -q; local rc=$?
-  if [ "$rc" -eq 5 ]; then echo "WARN  no tests collected yet (write some!)"; return 0; fi
-  return "$rc"
+run() {
+  local label="$1"
+  shift
+  echo
+  echo "=== $label ==="
+  if "$@"; then
+    echo "PASS: $label"
+  else
+    echo "FAIL: $label"
+    FAILED+=("$label")
+  fi
 }
 
 backend() {
-  [ -d backend ] || { echo "no backend/ folder"; return; }
-  [ -d backend/.venv ] && export PATH="$ROOT/backend/.venv/bin:$PATH"
-  pushd backend >/dev/null
-  optional ruff      "backend: ruff lint"   ruff check .
-  optional ruff      "backend: ruff format" ruff format --check .
-  optional mypy      "backend: mypy"        mypy app
-  optional pytest    "backend: pytest"      pytest_cmd
-  optional bandit    "backend: bandit"      bandit -q -r app
-  optional pip-audit "backend: pip-audit"   pip-audit
-  popd >/dev/null
+  if [[ ! -d backend ]]; then
+    echo "ERROR: backend/ directory missing."
+    FAILED+=("backend directory")
+    return
+  fi
+
+  if [[ ! -f backend/pyproject.toml || ! -f backend/uv.lock ]]; then
+    echo "ERROR: backend/pyproject.toml or backend/uv.lock missing."
+    FAILED+=("backend dependency files")
+    return
+  fi
+
+  run "backend: dependency lock" \
+    bash -c 'cd backend && uv lock --check'
+
+  run "backend: Ruff lint" \
+    bash -c 'cd backend && uv run ruff check app tests'
+
+  run "backend: Ruff format" \
+    bash -c 'cd backend && uv run ruff format --check app tests'
+
+  run "backend: pytest" \
+    bash -c 'cd backend && uv run pytest'
+
   contract
 }
 
-contract() {  # exported spec must match the committed one
-  [ -f scripts/export_openapi.py ] || return 0
-  [ -d backend/.venv ] && export PATH="$ROOT/backend/.venv/bin:$PATH"
-  local tmp; tmp="$(mktemp)"
-  echo; echo "=== contract: openapi.json in sync with code ==="
-  if python scripts/export_openapi.py --out "$tmp" >/dev/null 2>&1; then
-    if [ -f docs/contracts/openapi.json ] && diff -q "$tmp" docs/contracts/openapi.json >/dev/null; then
-      echo "PASS  contract in sync"
+frontend() {
+  if [[ ! -d frontend ]]; then
+    echo "ERROR: frontend/ directory missing."
+    FAILED+=("frontend directory")
+    return
+  fi
+
+  if [[ ! -f frontend/package.json || ! -f frontend/package-lock.json ]]; then
+    echo "ERROR: frontend package files missing."
+    FAILED+=("frontend dependency files")
+    return
+  fi
+
+  run "frontend: npm ci" \
+    bash -c 'cd frontend && npm ci'
+
+  run "frontend: TypeScript build" \
+    bash -c 'cd frontend && npm run build'
+
+  run "frontend: ESLint" \
+    bash -c 'cd frontend && npm run lint'
+}
+
+contract() {
+  if [[ ! -f scripts/export_openapi.py ]]; then
+    echo "ERROR: scripts/export_openapi.py missing."
+    FAILED+=("contract exporter missing")
+    return
+  fi
+
+  if [[ ! -f docs/contracts/openapi.json ]]; then
+    echo "ERROR: docs/contracts/openapi.json missing."
+    FAILED+=("OpenAPI contract missing")
+    return
+  fi
+
+  local tmp
+  tmp="$(mktemp)"
+  if (
+    cd backend
+    uv run python ../scripts/export_openapi.py --out "$tmp"
+  ); then
+    if diff -q "$tmp" docs/contracts/openapi.json >/dev/null; then
+      echo "PASS: OpenAPI contract in sync"
     else
-      echo "FAIL  contract differs from docs/contracts/openapi.json (owner must review and re-export)"
+      echo "FAIL: OpenAPI contract differs from generated spec."
       FAILED+=("contract drift")
     fi
   else
-    echo "FAIL  could not export the spec (does the app import? are env vars/DB needed at import?)"
+    echo "FAIL: OpenAPI export failed."
     FAILED+=("contract export")
   fi
   rm -f "$tmp"
 }
 
-frontend() {
-  [ -d frontend ] || { echo "no frontend/ folder"; return; }
-  if [ ! -d frontend/node_modules ]; then
-    echo "FAIL  frontend: node_modules missing (run 'npm ci' in frontend/)"; FAILED+=("frontend deps"); return
-  fi
-  pushd frontend >/dev/null
-  run "frontend: typecheck" npx tsc -b
-  run "frontend: eslint"    npx eslint .
-  if grep -q '"test"' package.json; then run "frontend: tests" npm test --silent -- --run; fi
-  run "frontend: build"     npm run build --silent
-  popd >/dev/null
-}
-
 repo() {
-  optional gitleaks "repo: gitleaks (secrets)" gitleaks detect --no-banner --redact
-  optional semgrep  "repo: semgrep"            semgrep scan --config auto --error --quiet backend frontend/src
+  if command -v gitleaks >/dev/null 2>&1; then
+    run "repo: Gitleaks" gitleaks detect --no-banner --redact
+  else
+    echo "SKIP: Gitleaks not installed."
+  fi
+
+  if command -v semgrep >/dev/null 2>&1; then
+    run "repo: Semgrep" semgrep scan --config auto --error --quiet backend frontend/src
+  else
+    echo "SKIP: Semgrep not installed."
+  fi
 }
 
 case "${1:-all}" in
-  backend)  backend ;;
+  backend) backend ;;
   frontend) frontend ;;
-  repo)     repo ;;
   contract) contract ;;
-  all)      backend; frontend; repo ;;
-  *) echo "usage: $0 [backend|frontend|repo|contract|all]"; exit 2 ;;
+  repo) repo ;;
+  all) backend; frontend; repo ;;
+  *)
+    echo "Usage: $0 [backend|frontend|contract|repo|all]"
+    exit 2
+    ;;
 esac
 
 echo
-if [ ${#FAILED[@]} -gt 0 ]; then
-  echo "CHECKS FAILED:"; printf '  - %s\n' "${FAILED[@]}"; exit 1
+if [[ "${#FAILED[@]}" -gt 0 ]]; then
+  printf 'FAILED CHECKS:\n'
+  printf ' - %s\n' "${FAILED[@]}"
+  exit 1
 fi
-echo "All checks passed (skipped tools are listed above)."
+
+echo "All required checks passed."

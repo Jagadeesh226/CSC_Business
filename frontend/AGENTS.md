@@ -1,33 +1,54 @@
-# Frontend agent rules (Vite + React + TypeScript)
+
+# Frontend Agent Rules
 
 You own `frontend/` only. Read the root `AGENTS.md` first.
 
-## Source of truth for the API
-- Types and client come from `docs/contracts/openapi.json`.
-- Generate with `bash scripts/gen_frontend_api.sh` (writes `frontend/src/api/schema.d.ts`).
-- Never hand-write API types and never edit `schema.d.ts` by hand.
-- If the API you need does not exist, build against the mock server
-  (`bash scripts/mock_api.sh`, port 4010) and list the missing endpoint in your reply.
-  Do not touch `backend/`.
+## API Contract
+
+Source of truth: `docs/contracts/openapi.json`.
+
+Generate API types using:
+`bash scripts/gen_frontend_api.sh`
+
+Generated file:
+`frontend/src/api/schema.d.ts`
+
+Never hand-write API contract types or edit the generated file manually.
+
+If an endpoint is missing:
+1. Build against the mock API when its contract supports the required operation.
+2. Report the missing endpoint and request a contract change.
+3. Do not edit `backend/` or `docs/contracts/`.
+
+## Existing Stack
+
+- React + Vite + TypeScript
+- TanStack Query for server state
+- React Hook Form and Zod for forms and validation
+- Centralized API access in `src/lib/api.ts`
+
+Do not add dependencies without explaining why.
 
 ## Rules
-1. TypeScript strict. No `any` unless unavoidable and commented.
-2. Server data via TanStack Query; forms via React Hook Form + Zod.
-3. Hiding a button is not security. Assume the backend will return 403 and handle it
-   with a clear message.
-4. Never put secrets in the frontend. Only `VITE_*` public settings. Never read `.env.local`.
-5. Never render raw HTML from user or OCR data. Mask Aadhaar/PAN/chassis/engine in lists.
-6. Accessibility: status as text plus colour, keyboard navigation, readable contrast,
-   large click targets, visible focus.
-7. Every screen needs loading, empty and error states.
 
-## Quality bar (the "wow" is speed and clarity for staff)
-- New Job flow is keyboard-first: mobile number first, existing-customer match,
-  progress for uploads and OCR, unsaved-changes warning.
-- OCR review: document preview beside the fields, low-confidence fields highlighted.
-- Ctrl+K command palette for customers, jobs, vehicles.
-- Expiry dashboard with 0-7, 8-15, 16-30 day buckets and one-click WhatsApp link.
-- Consistent design tokens (colours, spacing, type) defined once in one place.
+1. Keep TypeScript strict. Avoid `any`; justify unavoidable uses.
+2. Treat backend authorization as authoritative. Handle 401 and 403 responses with useful messages.
+3. Never put secrets in frontend code or Vite environment variables.
+4. Never read, print, or edit `.env.local`.
+5. Never render untrusted user/OCR content as raw HTML.
+6. Mask Aadhaar, PAN, chassis, and engine numbers in lists and exports.
+7. Every screen needs loading, empty, error, and success states as appropriate.
+8. Provide keyboard navigation, visible focus, readable contrast, and accessible status text.
+9. Use the API contract for request/response types.
 
-## Done means
-`scripts/check.sh frontend` passes (tsc, eslint, tests if present, build).
+## UX Priorities
+
+- New Job flow: mobile-number-first, existing-customer matching, upload/OCR progress, unsaved-change warning.
+- OCR review: document preview beside fields; highlight low-confidence values.
+- Ctrl+K command palette for customers, jobs, and vehicles.
+- Expiry dashboard: 0–7, 8–15, and 16–30 day buckets, with a WhatsApp action.
+- Define design tokens in one place.
+
+## Done Means
+
+Run `bash scripts/check.sh frontend` and report actual results. Do not claim completion if a check fails.

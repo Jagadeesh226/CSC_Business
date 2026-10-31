@@ -1,49 +1,73 @@
+
 #!/usr/bin/env bash
-# Fails if the current branch changes files outside the folders its owner may edit.
-# Usage:  scripts/check_ownership.sh [base-ref] [branch-name]
-#   base-ref    default: origin/main (falls back to main)
-#   branch-name default: current branch (CI passes the PR head branch)
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
 BASE="${1:-origin/main}"
-BRANCH="${2:-$(git rev-parse --abbrev-ref HEAD)}"
+BRANCH="${2:-$(git branch --show-current)}"
 
-git rev-parse --verify -q "$BASE" >/dev/null || BASE="main"
-git rev-parse --verify -q "$BASE" >/dev/null || { echo "Base ref not found: $BASE" >&2; exit 2; }
+if [[ "$BRANCH" == "owner/"* || "$BRANCH" == "main" || "$BRANCH" == "master" ]]; then
+  echo "Owner branch '$BRANCH': ownership restrictions not applied."
+  exit 0
+fi
 
-# Which path patterns (space separated, shell globs) this branch may touch.
 case "$BRANCH" in
-  feat/backend-*|backend/*)          ALLOWED="backend/*" ;;
-  feat/frontend-*|frontend/*)        ALLOWED="frontend/*" ;;
-  feat/integration-*|integration/*)  ALLOWED="backend/* frontend/*" ;;
-  feat/review-*|review/*)            ALLOWED="docs/reviews/*" ;;
-  owner/*|main|master)               echo "Owner branch '$BRANCH': no restriction."; exit 0 ;;
-  *) echo "Branch '$BRANCH' has no ownership rule. Use feat/backend-*, feat/frontend-*, feat/integration-*, feat/review-* or owner/*." >&2; exit 1 ;;
+  feat/backend-*) ALLOWED=("backend/") ;;
+  feat/frontend-*) ALLOWED=("frontend/") ;;
+  feat/integration-*) ALLOWED=("backend/" "frontend/") ;;
+  feat/review-*) ALLOWED=("docs/reviews/") ;;
+  *)
+    echo "ERROR: Branch '$BRANCH' has no ownership rule." >&2
+    exit 1
+    ;;
 esac
 
-# Never allowed on agent branches, whatever the prefix (checked first).
-FORBIDDEN_RE='(^|/)\.env($|\.)|^compose\.yaml$|^infra/|^\.github/|^scripts/|^docs/contracts/|^AGENTS\.md$'
+git rev-parse --verify "$BASE" >/dev/null 2>&1 || {
+  echo "ERROR: Base ref '$BASE' does not exist. Fetch the base branch first." >&2
+  exit 2
+}
 
-MB="$(git merge-base "$BASE" HEAD)"
-CHANGED="$(git diff --name-only "$MB" HEAD)"
-
-[ -z "$CHANGED" ] && { echo "No changes."; exit 0; }
+MB="$(git merge-base "$BASE" HEAD)" || {
+  echo "ERROR: Cannot determine merge base." >&2
+  exit 2
+}
 
 bad=0
-set -f   # no globbing: patterns like backend/* must stay patterns, not expand to file names
-while IFS= read -r f; do
-  if echo "$f" | grep -Eq "$FORBIDDEN_RE"; then
-    echo "FORBIDDEN  $f  (owner-only file)"; bad=1; continue
-  fi
-  ok=0
-  for pat in $ALLOWED; do
-    # shellcheck disable=SC2254
-    case "$f" in $pat) ok=1 ;; esac
-  done
-  if [ "$ok" -eq 0 ]; then echo "OUT OF BOUNDS  $f  (branch '$BRANCH' may edit: $ALLOWED)"; bad=1; fi
-done <<< "$CHANGED"
 
-if [ "$bad" -ne 0 ]; then
-  echo; echo "Ownership check FAILED. Move those changes to the right owner or ask the project owner."; exit 1
+while IFS= read -r -d '' file; do
+  case "$file" in
+    .env|.env.*|*/.env|*/.env.*|\
+    AGENTS.md|backend/AGENTS.md|frontend/AGENTS.md|\
+    README.md|.gitignore|compose.yaml|\
+    .github/*|.github/**/*|scripts/*|scripts/**/*|\
+    docs/contracts/*|docs/contracts/**/*|\
+    docs/SETUP-AI-WORKFLOW.md|docs/CSC_CRM_Development_Documentation_v1.0.docx|\
+    infra/*|infra/**/*)
+      echo "FORBIDDEN: $file"
+      bad=1
+      continue
+      ;;
+  esac
+
+  allowed=0
+  for prefix in "${ALLOWED[@]}"; do
+    if [[ "$file" == "$prefix"* ]]; then
+      allowed=1
+      break
+    fi
+  done
+
+  if [[ "$allowed" -eq 0 ]]; then
+    echo "OUT OF BOUNDS: $file (branch '$BRANCH')"
+    bad=1
+  fi
+done < <(git diff --name-only -z "$MB" HEAD)
+
+if [[ "$bad" -ne 0 ]]; then
+  echo "Ownership check FAILED."
+  exit 1
 fi
-echo "Ownership check passed for '$BRANCH' ($(echo "$CHANGED" | wc -l | tr -d ' ') files)."
+
+echo "Ownership check passed for '$BRANCH'."

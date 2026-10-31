@@ -1,0 +1,19 @@
+
+# Owner-controlled project configuration
+/AGENTS.md                         @Jagadeesh226
+/backend/AGENTS.md                 @Jagadeesh226
+/frontend/AGENTS.md                @Jagadeesh226
+/.gitignore                        @Jagadeesh226
+/compose.yaml                      @Jagadeesh226
+/README.md                         @Jagadeesh226
+/.github/                          @Jagadeesh226
+/scripts/                          @Jagadeesh226
+/docs/contracts/                   @Jagadeesh226
+/docs/SETUP-AI-WORKFLOW.md         @Jagadeesh226
+
+# Application code owners
+/backend/                          @Jagadeesh226
+/frontend/                         @Jagadeesh226
+
+# Review reports
+/docs/reviews/                     @Jagadeesh226

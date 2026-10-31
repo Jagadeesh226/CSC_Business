@@ -26,9 +26,22 @@ case "${1:-}" in
       echo "created: $dir  ->  $branch"
     done
     echo
-    echo "Next: in $NAME-backend run:  cd backend && python -m venv .venv && .venv/bin/pip install -r requirements.txt"
-    echo "      in $NAME-frontend run: cd frontend && npm ci"
-    echo "      (node_modules and .venv are NOT shared between worktrees; .env files are not copied either)"
+    echo "Worktrees created. Run the following setup commands:"
+    echo
+
+    echo "Backend worktrees:"
+    echo " cd \"$PARENT/$NAME-backend\" && sync --locked"
+    echo
+    echo "Frontend worktrees:"
+    echo " cd \"$PARENT/$NAME-frontend\" && npm ci"
+    echo
+    echo "Integration worktree:"
+    echo "  Run backend and frontend setup in their respective directories."
+    echo
+    echo "Review worktree:"
+    echo " Read the root AGENTS.md and docs/reviews/README.md."
+    echo 
+    echo "(node_modules and .venv are NOT shared between worktrees; .env files are not copied either.)"
     ;;
   list)   git -C "$ROOT" worktree list ;;
   remove)

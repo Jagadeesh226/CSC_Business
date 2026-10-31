@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fake API generated from the contract, so the frontend can be built before the backend exists.
-# Point the frontend at http://localhost:4010 (e.g. VITE_API_URL in frontend/.env.local).
+# Point the frontend at http://localhost:4010 (e.g. VITE_API_BASE_URL in frontend/.env.local).
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SPEC="$ROOT/docs/contracts/openapi.json"

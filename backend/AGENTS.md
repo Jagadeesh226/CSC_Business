@@ -1,37 +1,68 @@
-# Backend agent rules (FastAPI)
+
+# Backend Agent Rules
 
 You own `backend/` only. Read the root `AGENTS.md` first.
 
-## Layout (keep it)
-```
-backend/app/
-  api/           routers only: parse request, call a service, return a schema. No business logic.
-  core/          config, security, auth dependencies, logging
-  db/            session, base, migrations setup
-  models/        SQLAlchemy models
-  schemas/       Pydantic request/response models (these generate the OpenAPI contract)
-  repositories/  database access only, no business rules
-  services/      business rules and authorisation checks live here
-  integration/   external adapters (OCR provider, storage). Keep behind an interface.
-  workers/       background jobs (OCR, daily expiry check, exports)
-  main.py        app creation and router registration
-```
+## Existing Layout
 
-## Rules
-1. Flow is always `api -> services -> repositories -> models`. Routers never touch the
-   database directly.
-2. Every route must declare `response_model`, proper status codes, and an auth
-   dependency. Permission checks (role and record-level) go in `services`.
-3. Schemas are the contract. When you add or change a schema or route, run
-   `python scripts/export_openapi.py` and tell the owner the spec changed.
-   Do not change existing fields; add new optional ones instead.
-4. Error shape is consistent JSON. Never return stack traces, SQL, storage keys or
-   secrets. Use 400/401/403/404/409/500 as defined in the requirements document.
-5. Job IDs, customer codes and receipt numbers are generated server-side. Use
-   database UUIDs internally.
-6. Payment and receipt creation must be idempotent (idempotency key or unique constraint).
-7. Write a pytest for each service function you add, including a permission-denied case.
-8. Migrations: one Alembic migration per schema change, never edit an old one.
+Preserve the current structure:
 
-## Done means
-`scripts/check.sh backend` passes (ruff, mypy, pytest, bandit, pip-audit, spec in sync).
+- `app/main.py`: FastAPI app creation and router registration
+- `app/core/`: configuration, security, authentication dependencies, logging
+- `app/db/`: SQLAlchemy base, models, sessions
+- `app/api/v1/`: API routers and endpoints
+- `app/schemas/`: Pydantic request/response models
+- `app/repositories/`: database access
+- `app/services/`: business logic and authorization
+- `app/services/integration/`: external service adapters
+- `app/workers/`: background jobs as needed
+- `migrations/`: Alembic migrations
+- `tests/`: automated backend tests
+
+Create missing directories only when needed. Do not reorganize existing code without the owner's approval.
+
+## Architecture
+
+1. Request flow: API router -> service -> repository -> SQLAlchemy model.
+2. Routers parse requests, invoke services, and return response schemas.
+3. Business rules and record-level authorization belong in services.
+4. Repositories perform persistence and query operations, not business decisions.
+5. Use Pydantic schemas for request and response validation.
+6. Protected routes must declare authentication and appropriate authorization dependencies.
+7. Use consistent HTTP status codes and safe JSON error responses.
+8. Never expose stack traces, SQL statements, storage keys, or secrets in API responses.
+
+## Database
+
+- Use SQLAlchemy and Alembic, not Prisma.
+- Use UUIDs internally where appropriate.
+- Generate customer codes, job IDs where applicable, and receipt numbers server-side.
+- Create one new Alembic migration for each schema change.
+- Never edit an existing migration that may have been applied.
+- Payment and receipt creation must have database-enforced idempotency.
+
+## API Contract
+
+The approved contract is `docs/contracts/openapi.json`.
+
+When changing routes or schemas:
+1. Explain the proposed contract change.
+2. Do not edit `docs/contracts/`.
+3. Run the OpenAPI export command when the app is importable.
+4. Report the resulting spec differences and ask the owner to approve and commit them.
+
+Command:
+`python scripts/export_openapi.py`
+
+## Tests and Security
+
+- Write tests for each new service function.
+- Include permission-denied tests for protected operations.
+- Test validation errors, not-found cases, conflicts, and duplicate requests where relevant.
+- Keep document access private and audited.
+- Never allow OCR to overwrite verified fields without an explicit review workflow.
+- Do not log secrets or sensitive identity/document contents.
+
+## Done Means
+
+Run `bash scripts/check.sh backend` and report the actual result. Do not claim checks passed if they were skipped or failed.
